@@ -39,8 +39,8 @@ git clone https://github.com/<you>/douban-export-skill.git
 # 导出到当前目录，Markdown 格式
 python3 scripts/douban-export.py --user <你的豆瓣ID>
 
-# 只要电影和书，输出 JSON
-python3 scripts/douban-export.py --format json --type movie,book
+# 只要影视和书，输出 JSON
+python3 scripts/douban-export.py --format json --type film-tv,book
 
 # 指定目录
 python3 scripts/douban-export.py --output-dir ~/notes/media
@@ -51,7 +51,7 @@ python3 scripts/douban-export.py --output-dir ~/notes/media
 | `--user` / `-u` | 配置文件 | 豆瓣 ID，也接受完整 profile URL |
 | `--output-dir` / `-o` | **当前目录** | 不存在会自动创建 |
 | `--format` / `-f` | **`md`** | `md` / `csv` / `json` |
-| `--type` / `-t` | 全部四类 | 逗号分隔：`book,movie,music,game` |
+| `--type` / `-t` | 全部四类 | 逗号分隔：`book,film-tv,music,game`（`movie`/`tv`/`film` 是 `film-tv` 的别名） |
 
 ### 豆瓣 ID 怎么给
 
@@ -66,18 +66,19 @@ ID 在 profile URL 里：`douban.com/people/<这一段>/`。
 每种类型一个文件，**没有数据的类型不会生成空文件**：
 
 ```
-books.md    movies.md    music.md    games.md
+books.md    film-tv.md    music.md    games.md
 ```
 
 > ⚠️ 默认输出到**当前目录**。如果你在自己的仓库里跑，记得把上面这些文件名加进 `.gitignore`（本仓库的 `.gitignore` 里已经列好，可以直接抄）。
 
-列：`title, card_subtitle, url, date, rating, status, comment, tags`
+列：`title, card_subtitle, url, date, rating, status, comment, tags`，影视多一列 `subtype`。
 
 - **`card_subtitle`** 是豆瓣自己拼好的一行元数据，四类通用：
   - 电影：`2019 / 美国 加拿大 / 剧情 惊悚 犯罪 / 托德·菲利普斯 / 华金·菲尼克斯 罗伯特·德尼罗`
   - 书：`[美] Robert C. Martin / 2020 / 人民邮电出版社`
 - `status`：读过/在读/想读、看过/在看/想看、听过/在听/想听、玩过/在玩/想玩
 - `rating`：★ 到 ★★★★★，没打分就是空
+- **`subtype`**（仅 `film-tv.md`）：`电影` 或 `剧集`。豆瓣把电影、电视剧、动画番剧全归在同一个类目下，这一列是唯一能把它们分开的字段。其余三类的 `subtype` 只是把类目名回显一遍，没有信息量，所以不输出这一列
 - `url` 是条目唯一标识，也是去重和回链的依据
 
 每次运行**全量覆盖**，没有增量状态，重复跑是安全的。约 500 条数据跑完一分多钟。
@@ -87,15 +88,17 @@ books.md    movies.md    music.md    games.md
 | | 上游 `douban-skill` | 本项目 |
 |---|---|---|
 | 输出格式 | 仅 CSV | **Markdown（默认）/ CSV / JSON** |
-| 字段 | 6 列 | **8 列**，增加 `card_subtitle` 和 `tags` |
+| 字段 | 6 列 | **8 列**（影视 9 列），增加 `card_subtitle`、`tags`，影视另加 `subtype` |
 | 输出目录 | `~/Downloads/douban-sync/<id>/` | **当前目录**，`--output-dir` 可改 |
-| 文件名 | `书.csv` / `影视.csv` … | **`books.md` / `movies.md` …**（英文名） |
-| 类别筛选 | 不支持，四类一起导 | **`--type` 可选子集** |
+| 文件名 | `书.csv` / `影视.csv` … | **`books.md` / `film-tv.md` …**（英文名） |
+| 类别筛选 | 不支持，四类一起导 | **`--type` 可选子集**，支持别名 |
 | 用户 ID | 每次传环境变量 | **配置文件记住，免重复输入** |
 | 参数 | 环境变量 | 标准 CLI 参数（`argparse`） |
 | RSS 增量同步 | 有 | 去掉了，见下 |
 
 **为什么加 `card_subtitle` 和 `tags`**：上游丢掉了类型、年代、导演、作者、出版社和用户自己打的标签，而这些字段本来就在同一个 API 响应里，不额外花一分钱。少了它们，导出的表只能回答「我看过什么」，回答不了「我是什么样的观众」。
+
+**为什么叫 `film-tv` 而不是 `movies`**：豆瓣 API 这个类目的参数名是 `movie`，但里面装的是电影、电视剧、动画番剧——叫 `movies` 会让人以为只有电影。对外统一用 `film-tv`，`movie`/`tv`/`film` 保留为 `--type` 的别名。
 
 **为什么用英文文件名**：默认输出到当前目录，文件名会直接出现在别人的项目里和 `git status` 里。表格内容仍然全中文——该本地化的是数据，不是文件名。
 

@@ -25,7 +25,7 @@ python3 scripts/douban-export.py [--user ID] [--output-dir DIR] [--format FMT] [
 | `--user` / `-u` | config file | Douban ID or full profile URL |
 | `--output-dir` / `-o` | **current directory** | Created if missing |
 | `--format` / `-f` | **`md`** | `md`, `csv`, or `json` |
-| `--type` / `-t` | all four | Comma-separated: `book,movie,music,game` |
+| `--type` / `-t` | all four | Comma-separated: `book,film-tv,music,game` (`movie`/`tv`/`film` alias to `film-tv`) |
 
 **User ID resolution order:** `--user` > `$DOUBAN_USER` > `~/.config/douban-export/config.json`.
 After a successful run the ID is saved to the config file, so later runs need no
@@ -41,14 +41,17 @@ A full URL is accepted and parsed.
 One file per type, only for types that actually have items:
 
 ```
-books.md    movies.md    music.md    games.md
+books.md    film-tv.md    music.md    games.md
 ```
 
-Columns: `title, card_subtitle, url, date, rating, status, comment, tags`
+Columns: `title, card_subtitle, url, date, rating, status, comment, tags` — plus `subtype` for film-tv.
 
 - `card_subtitle` is Douban's own one-line metadata: `2019 / 美国 / 剧情 / 托德·菲利普斯 / 华金·菲尼克斯`
   for a film, `[美] Robert C. Martin / 2020 / 人民邮电出版社` for a book. It is the
   only metadata field all four types share.
+- `subtype` (film-tv only) is `电影` or `剧集`. Douban files films, TV series and
+  anime under one category; this is the only field separating them. The other three
+  types just echo their own category name back, so the column is omitted there.
 - `status` is the Chinese mark: 读过/在读/想读, 看过/在看/想看, 听过/在听/想听, 玩过/在玩/想玩
 - `rating` is ★ to ★★★★★, empty when unrated
 - Files are overwritten in full on every run. Safe to re-run; no incremental state.

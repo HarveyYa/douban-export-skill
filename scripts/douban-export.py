@@ -54,41 +54,57 @@ ITEMS_PER_PAGE = 50
 MAX_PAGES_SAFETY = 500
 
 # --- Categories ---
-# (api_type, api_status, chinese_label)
-CATEGORIES = [
-    ('book',  'done',  '读过'),
-    ('book',  'doing', '在读'),
-    ('book',  'mark',  '想读'),
-    ('movie', 'done',  '看过'),
-    ('movie', 'doing', '在看'),
-    ('movie', 'mark',  '想看'),
-    ('music', 'done',  '听过'),
-    ('music', 'doing', '在听'),
-    ('music', 'mark',  '想听'),
-    ('game',  'done',  '玩过'),
-    ('game',  'doing', '在玩'),
-    ('game',  'mark',  '想玩'),
-]
+# Douban's API calls the film/TV category "movie", but it holds films, TV series
+# and anime alike, so the user-facing name is "film-tv".
+API_TYPE = {'book': 'book', 'film-tv': 'movie', 'music': 'music', 'game': 'game'}
+TYPES = list(API_TYPE)
+TYPE_ALIASES = {'movie': 'film-tv', 'movies': 'film-tv', 'film': 'film-tv',
+                'tv': 'film-tv', 'books': 'book', 'games': 'game'}
 
-TYPES = ['book', 'movie', 'music', 'game']
+# (type, api_status, chinese_label)
+CATEGORIES = [
+    ('book',    'done',  '读过'),
+    ('book',    'doing', '在读'),
+    ('book',    'mark',  '想读'),
+    ('film-tv', 'done',  '看过'),
+    ('film-tv', 'doing', '在看'),
+    ('film-tv', 'mark',  '想看'),
+    ('music',   'done',  '听过'),
+    ('music',   'doing', '在听'),
+    ('music',   'mark',  '想听'),
+    ('game',    'done',  '玩过'),
+    ('game',    'doing', '在玩'),
+    ('game',    'mark',  '想玩'),
+]
 
 # Output basename per type. English on purpose: the default output directory is
 # the current directory, so these names land in other people's repos and shells.
 OUTFILE = {
-    'book':  'books',
-    'movie': 'movies',
-    'music': 'music',
-    'game':  'games',
+    'book':    'books',
+    'film-tv': 'film-tv',
+    'music':   'music',
+    'game':    'games',
 }
 
 URL_PREFIX = {
-    'book':  'https://book.douban.com/subject/',
-    'movie': 'https://movie.douban.com/subject/',
-    'music': 'https://music.douban.com/subject/',
-    'game':  'https://www.douban.com/game/',
+    'book':    'https://book.douban.com/subject/',
+    'film-tv': 'https://movie.douban.com/subject/',
+    'music':   'https://music.douban.com/subject/',
+    'game':    'https://www.douban.com/game/',
 }
 
-FIELDS = ['title', 'card_subtitle', 'url', 'date', 'rating', 'status', 'comment', 'tags']
+SUBTYPE_CN = {'movie': '电影', 'tv': '剧集'}
+
+BASE_FIELDS = ['title', 'card_subtitle', 'url', 'date', 'rating', 'status', 'comment', 'tags']
+
+# `subtype` only carries information for film-tv (电影 vs 剧集). For the other
+# types the API just echoes the category name back, so the column would be noise.
+EXTRA_FIELDS = {'film-tv': ['subtype']}
+
+
+def fields_for(type_name):
+    """Column list for one output type: subtype slots in after card_subtitle."""
+    return BASE_FIELDS[:2] + EXTRA_FIELDS.get(type_name, []) + BASE_FIELDS[2:]
 
 CONFIG_PATH = os.path.expanduser('~/.config/douban-export/config.json')
 
@@ -184,7 +200,7 @@ def fetch_all(user_id, type_name, status):
 
     while pages < MAX_PAGES_SAFETY:
         pages += 1
-        data, code = fetch(path, {'type': type_name, 'status': status,
+        data, code = fetch(path, {'type': API_TYPE[type_name], 'status': status,
                                   'start': start, 'count': ITEMS_PER_PAGE})
         if code != 200:
             retries += 1
@@ -244,8 +260,10 @@ def to_row(interest, type_name, status_cn):
     if not re.match(r'^\d{4}-\d{2}-\d{2}$', date):
         date = ''
     tags = interest.get('tags') or []
+    subtype = subject.get('subtype', '')
     return {
         'title': subject.get('title', ''),
+        'subtype': SUBTYPE_CN.get(subtype, ''),
         'card_subtitle': subject.get('card_subtitle', ''),
         'url': url,
         'date': date,
@@ -263,31 +281,31 @@ def md_cell(value):
     return str(value).replace('|', '\\|').replace('\n', '<br>').strip()
 
 
-def write_md(path, rows, heading):
+def write_md(path, rows, heading, fields):
     with open(path, 'w', encoding='utf-8') as f:
         f.write(f'# {heading}\n\n{GENERATED_NOTE}\n\n')
         f.write(f'共 {len(rows)} 条，导出时间 {time.strftime("%Y-%m-%d %H:%M")}\n\n')
-        f.write('| ' + ' | '.join(FIELDS) + ' |\n')
-        f.write('|' + '---|' * len(FIELDS) + '\n')
+        f.write('| ' + ' | '.join(fields) + ' |\n')
+        f.write('|' + '---|' * len(fields) + '\n')
         for r in rows:
-            f.write('| ' + ' | '.join(md_cell(r[k]) for k in FIELDS) + ' |\n')
+            f.write('| ' + ' | '.join(md_cell(r[k]) for k in fields) + ' |\n')
 
 
-def write_csv(path, rows, _heading):
+def write_csv(path, rows, _heading, fields):
     with open(path, 'w', newline='', encoding='utf-8-sig') as f:
-        w = csv.DictWriter(f, fieldnames=FIELDS)
+        w = csv.DictWriter(f, fieldnames=fields, extrasaction='ignore')
         w.writeheader()
         w.writerows(rows)
 
 
-def write_json(path, rows, _heading):
+def write_json(path, rows, _heading, fields):
     with open(path, 'w', encoding='utf-8') as f:
-        json.dump(rows, f, ensure_ascii=False, indent=2)
+        json.dump([{k: r[k] for k in fields} for r in rows], f, ensure_ascii=False, indent=2)
 
 
 WRITERS = {'md': write_md, 'csv': write_csv, 'json': write_json}
 
-HEADINGS = {'book': '豆瓣读书', 'movie': '豆瓣影视', 'music': '豆瓣音乐', 'game': '豆瓣游戏'}
+HEADINGS = {'book': '豆瓣读书', 'film-tv': '豆瓣影视', 'music': '豆瓣音乐', 'game': '豆瓣游戏'}
 
 
 # --- Main -------------------------------------------------------------------
@@ -303,7 +321,8 @@ def parse_args():
     p.add_argument('--format', '-f', default='md', choices=sorted(WRITERS),
                    help='Output format (default: md)')
     p.add_argument('--type', '-t', default=','.join(TYPES),
-                   help='Comma-separated subset of: book,movie,music,game (default: all)')
+                   help='Comma-separated subset of: book,film-tv,music,game (default: all). '
+                        '"movie"/"tv"/"film" are accepted as aliases of film-tv.')
     return p.parse_args()
 
 
@@ -315,8 +334,15 @@ def main():
         sys.exit('Error: no Douban user ID. Pass --user <id>, set $DOUBAN_USER, '
                  'or run once with --user to save it to ~/.config/douban-export/config.json')
 
-    wanted = [t.strip() for t in args.type.split(',') if t.strip()]
-    unknown = [t for t in wanted if t not in TYPES]
+    wanted, unknown = [], []
+    for raw in args.type.split(','):
+        name = TYPE_ALIASES.get(raw.strip().lower(), raw.strip().lower())
+        if not name:
+            continue
+        if name not in TYPES:
+            unknown.append(raw.strip())
+        elif name not in wanted:
+            wanted.append(name)
     if unknown:
         sys.exit(f'Error: unknown --type value(s): {", ".join(unknown)}. Valid: {", ".join(TYPES)}')
 
@@ -347,7 +373,7 @@ def main():
             print(f'  {OUTFILE[type_name]}.{args.format}: skipped (no items)')
             continue
         path = os.path.join(out_dir, f'{OUTFILE[type_name]}.{args.format}')
-        WRITERS[args.format](path, rows, HEADINGS[type_name])
+        WRITERS[args.format](path, rows, HEADINGS[type_name], fields_for(type_name))
         print(f'  {os.path.basename(path)}: {len(rows)} rows')
         written += len(rows)
 
