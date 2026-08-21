@@ -54,57 +54,62 @@ ITEMS_PER_PAGE = 50
 MAX_PAGES_SAFETY = 500
 
 # --- Categories ---
-# Douban's API calls the film/TV category "movie", but it holds films, TV series
-# and anime alike, so the user-facing name is "film-tv".
-API_TYPE = {'book': 'book', 'film-tv': 'movie', 'music': 'music', 'game': 'game'}
+# Douban's API has one "movie" category holding films, TV series and anime alike.
+# We split it into two user-facing types on the client side, by subject.subtype,
+# so movies and series land in separate files. Both still cost one fetch.
+API_TYPE = {'book': 'book', 'movie': 'movie', 'tv': 'movie', 'music': 'music', 'game': 'game'}
 TYPES = list(API_TYPE)
-TYPE_ALIASES = {'movie': 'film-tv', 'movies': 'film-tv', 'film': 'film-tv',
-                'tv': 'film-tv', 'books': 'book', 'games': 'game'}
 
-# (type, api_status, chinese_label)
+# Restrict a user-facing type to one subject.subtype. None means "take everything".
+SUBTYPE_FILTER = {'movie': 'movie', 'tv': 'tv'}
+
+# An alias may expand to several types.
+TYPE_ALIASES = {
+    'film-tv': ['movie', 'tv'], 'filmtv': ['movie', 'tv'], 'video': ['movie', 'tv'],
+    'film': ['movie'], 'films': ['movie'], 'movies': ['movie'],
+    'series': ['tv'], 'tvs': ['tv'], 'show': ['tv'], 'shows': ['tv'],
+    'books': ['book'], 'games': ['game'],
+}
+
+# (api_type, api_status, chinese_label)
 CATEGORIES = [
-    ('book',    'done',  '读过'),
-    ('book',    'doing', '在读'),
-    ('book',    'mark',  '想读'),
-    ('film-tv', 'done',  '看过'),
-    ('film-tv', 'doing', '在看'),
-    ('film-tv', 'mark',  '想看'),
-    ('music',   'done',  '听过'),
-    ('music',   'doing', '在听'),
-    ('music',   'mark',  '想听'),
-    ('game',    'done',  '玩过'),
-    ('game',    'doing', '在玩'),
-    ('game',    'mark',  '想玩'),
+    ('book',  'done',  '读过'),
+    ('book',  'doing', '在读'),
+    ('book',  'mark',  '想读'),
+    ('movie', 'done',  '看过'),
+    ('movie', 'doing', '在看'),
+    ('movie', 'mark',  '想看'),
+    ('music', 'done',  '听过'),
+    ('music', 'doing', '在听'),
+    ('music', 'mark',  '想听'),
+    ('game',  'done',  '玩过'),
+    ('game',  'doing', '在玩'),
+    ('game',  'mark',  '想玩'),
 ]
 
 # Output basename per type. English on purpose: the default output directory is
 # the current directory, so these names land in other people's repos and shells.
 OUTFILE = {
-    'book':    'books',
-    'film-tv': 'film-tv',
-    'music':   'music',
-    'game':    'games',
+    'book':  'books',
+    'movie': 'movies',
+    'tv':    'tv',
+    'music': 'music',
+    'game':  'games',
 }
 
 URL_PREFIX = {
-    'book':    'https://book.douban.com/subject/',
-    'film-tv': 'https://movie.douban.com/subject/',
-    'music':   'https://music.douban.com/subject/',
-    'game':    'https://www.douban.com/game/',
+    'book':  'https://book.douban.com/subject/',
+    'movie': 'https://movie.douban.com/subject/',
+    'tv':    'https://movie.douban.com/subject/',
+    'music': 'https://music.douban.com/subject/',
+    'game':  'https://www.douban.com/game/',
 }
 
-SUBTYPE_CN = {'movie': '电影', 'tv': '剧集'}
+HEADINGS = {'book': '豆瓣读书', 'movie': '豆瓣电影', 'tv': '豆瓣剧集',
+            'music': '豆瓣音乐', 'game': '豆瓣游戏'}
 
-BASE_FIELDS = ['title', 'card_subtitle', 'url', 'date', 'rating', 'status', 'comment', 'tags']
-
-# `subtype` only carries information for film-tv (电影 vs 剧集). For the other
-# types the API just echoes the category name back, so the column would be noise.
-EXTRA_FIELDS = {'film-tv': ['subtype']}
-
-
-def fields_for(type_name):
-    """Column list for one output type: subtype slots in after card_subtitle."""
-    return BASE_FIELDS[:2] + EXTRA_FIELDS.get(type_name, []) + BASE_FIELDS[2:]
+# Splitting by subtype makes the column constant within each file, so it is gone.
+FIELDS = ['title', 'card_subtitle', 'url', 'date', 'rating', 'status', 'comment', 'tags']
 
 CONFIG_PATH = os.path.expanduser('~/.config/douban-export/config.json')
 
@@ -200,7 +205,7 @@ def fetch_all(user_id, type_name, status):
 
     while pages < MAX_PAGES_SAFETY:
         pages += 1
-        data, code = fetch(path, {'type': API_TYPE[type_name], 'status': status,
+        data, code = fetch(path, {'type': type_name, 'status': status,
                                   'start': start, 'count': ITEMS_PER_PAGE})
         if code != 200:
             retries += 1
@@ -260,10 +265,8 @@ def to_row(interest, type_name, status_cn):
     if not re.match(r'^\d{4}-\d{2}-\d{2}$', date):
         date = ''
     tags = interest.get('tags') or []
-    subtype = subject.get('subtype', '')
     return {
         'title': subject.get('title', ''),
-        'subtype': SUBTYPE_CN.get(subtype, ''),
         'card_subtitle': subject.get('card_subtitle', ''),
         'url': url,
         'date': date,
@@ -281,31 +284,30 @@ def md_cell(value):
     return str(value).replace('|', '\\|').replace('\n', '<br>').strip()
 
 
-def write_md(path, rows, heading, fields):
+def write_md(path, rows, heading):
     with open(path, 'w', encoding='utf-8') as f:
         f.write(f'# {heading}\n\n{GENERATED_NOTE}\n\n')
         f.write(f'共 {len(rows)} 条，导出时间 {time.strftime("%Y-%m-%d %H:%M")}\n\n')
-        f.write('| ' + ' | '.join(fields) + ' |\n')
-        f.write('|' + '---|' * len(fields) + '\n')
+        f.write('| ' + ' | '.join(FIELDS) + ' |\n')
+        f.write('|' + '---|' * len(FIELDS) + '\n')
         for r in rows:
-            f.write('| ' + ' | '.join(md_cell(r[k]) for k in fields) + ' |\n')
+            f.write('| ' + ' | '.join(md_cell(r[k]) for k in FIELDS) + ' |\n')
 
 
-def write_csv(path, rows, _heading, fields):
+def write_csv(path, rows, _heading):
     with open(path, 'w', newline='', encoding='utf-8-sig') as f:
-        w = csv.DictWriter(f, fieldnames=fields, extrasaction='ignore')
+        w = csv.DictWriter(f, fieldnames=FIELDS)
         w.writeheader()
         w.writerows(rows)
 
 
-def write_json(path, rows, _heading, fields):
+def write_json(path, rows, _heading):
     with open(path, 'w', encoding='utf-8') as f:
-        json.dump([{k: r[k] for k in fields} for r in rows], f, ensure_ascii=False, indent=2)
+        json.dump(rows, f, ensure_ascii=False, indent=2)
 
 
 WRITERS = {'md': write_md, 'csv': write_csv, 'json': write_json}
 
-HEADINGS = {'book': '豆瓣读书', 'film-tv': '豆瓣影视', 'music': '豆瓣音乐', 'game': '豆瓣游戏'}
 
 
 # --- Main -------------------------------------------------------------------
@@ -321,8 +323,8 @@ def parse_args():
     p.add_argument('--format', '-f', default='md', choices=sorted(WRITERS),
                    help='Output format (default: md)')
     p.add_argument('--type', '-t', default=','.join(TYPES),
-                   help='Comma-separated subset of: book,film-tv,music,game (default: all). '
-                        '"movie"/"tv"/"film" are accepted as aliases of film-tv.')
+                   help='Comma-separated subset of: book,movie,tv,music,game (default: all). '
+                        '"film-tv" expands to movie+tv.')
     return p.parse_args()
 
 
@@ -336,13 +338,14 @@ def main():
 
     wanted, unknown = [], []
     for raw in args.type.split(','):
-        name = TYPE_ALIASES.get(raw.strip().lower(), raw.strip().lower())
-        if not name:
+        token = raw.strip().lower()
+        if not token:
             continue
-        if name not in TYPES:
-            unknown.append(raw.strip())
-        elif name not in wanted:
-            wanted.append(name)
+        for name in TYPE_ALIASES.get(token, [token]):
+            if name not in TYPES:
+                unknown.append(raw.strip())
+            elif name not in wanted:
+                wanted.append(name)
     if unknown:
         sys.exit(f'Error: unknown --type value(s): {", ".join(unknown)}. Valid: {", ".join(TYPES)}')
 
@@ -355,14 +358,28 @@ def main():
     if not preflight(user_id):
         sys.exit(1)
 
+    # movie and tv share one API category: fetch once, split by subtype afterwards.
+    api_groups = {}
+    for name in wanted:
+        api_groups.setdefault(API_TYPE[name], []).append(name)
+
     by_type = {t: [] for t in wanted}
-    for type_name, status, status_cn in CATEGORIES:
-        if type_name not in by_type:
+    for api_type, status, status_cn in CATEGORIES:
+        targets = api_groups.get(api_type)
+        if not targets:
             continue
-        print(f'=== {status_cn} ({type_name}) ===')
-        items = fetch_all(user_id, type_name, status)
-        by_type[type_name].extend(to_row(i, type_name, status_cn) for i in items)
-        print(f'  Collected: {len(items)}\n' if items else '  (empty)\n')
+        print(f'=== {status_cn} ({"/".join(targets)}) ===')
+        items = fetch_all(user_id, api_type, status)
+        for item in items:
+            subtype = (item.get('subject') or {}).get('subtype', '')
+            for name in targets:
+                wanted_subtype = SUBTYPE_FILTER.get(name)
+                if wanted_subtype is None or wanted_subtype == subtype:
+                    by_type[name].append(to_row(item, name, status_cn))
+        if items:
+            print('  ' + ', '.join(f'{name}: {sum(1 for _ in by_type[name])}' for name in targets) + ' (cumulative)\n')
+        else:
+            print('  (empty)\n')
         time.sleep(CATEGORY_DELAY)
 
     print('--- Writing files ---')
@@ -373,7 +390,7 @@ def main():
             print(f'  {OUTFILE[type_name]}.{args.format}: skipped (no items)')
             continue
         path = os.path.join(out_dir, f'{OUTFILE[type_name]}.{args.format}')
-        WRITERS[args.format](path, rows, HEADINGS[type_name], fields_for(type_name))
+        WRITERS[args.format](path, rows, HEADINGS[type_name])
         print(f'  {os.path.basename(path)}: {len(rows)} rows')
         written += len(rows)
 

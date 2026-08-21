@@ -1,15 +1,18 @@
 # Export output — the default output directory is the working directory,
 # so a run inside this repo would otherwise leave these behind.
 books.md
-film-tv.md
+movies.md
+tv.md
 music.md
 games.md
 books.csv
-film-tv.csv
+movies.csv
+tv.csv
 music.csv
 games.csv
 books.json
-film-tv.json
+movies.json
+tv.json
 music.json
 games.json
 
